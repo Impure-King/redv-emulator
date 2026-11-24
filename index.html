@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RED-V Board Emulator · FE310-G002</title>
+<meta name="description" content="Run RISC-V assembly for the SparkFun RED-V (SiFive FE310-G002) lab board in your browser: LED bar, seven-segment display, push buttons, GPIO, PLIC and timer interrupts.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='6' width='20' height='20' rx='3' fill='%23d73a49'/%3E%3Cpath d='M10 2v4M16 2v4M22 2v4M10 26v4M16 26v4M22 26v4M2 10h4M2 16h4M2 22h4M26 10h4M26 16h4M26 22h4' stroke='%23999' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/codemirror.min.css">
+<link rel="stylesheet" href="vendor/addon/dialog/dialog.min.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><rect x="6" y="6" width="20" height="20" rx="3" fill="#d73a49"/><path d="M10 2v4M16 2v4M22 2v4M10 26v4M16 26v4M22 26v4M2 10h4M2 16h4M2 22h4M26 10h4M26 16h4M26 22h4" stroke="#8b949e" stroke-width="2"/><text x="16" y="20" text-anchor="middle" font-size="9" font-family="system-ui" font-weight="700" fill="#fff">V</text></svg>
+    <div>
+      <div class="brand-name">RED-V Board Emulator</div>
+      <div class="brand-sub">SiFive FE310-G002 · RV32IMAC · 16 MHz</div>
+    </div>
+  </div>
+  <div class="toolbar" role="toolbar" aria-label="Run controls">
+    <button id="btnRun" class="btn primary" title="Build &amp; run (F5 / Ctrl+Enter)"><span class="ico">▶</span><span class="lbl">Run</span></button>
+    <button id="btnPause" class="btn" title="Pause (F6)" disabled><span class="ico">❚❚</span><span class="lbl">Pause</span></button>
+    <button id="btnStep" class="btn" title="Step one instruction (F11)"><span class="ico">↧</span><span class="lbl">Step</span></button>
+    <button id="btnOver" class="btn" title="Step over calls (F10)"><span class="ico">↷</span><span class="lbl">Over</span></button>
+    <button id="btnReset" class="btn" title="Rebuild and reset the board (Ctrl+Shift+R)"><span class="ico">⟲</span><span class="lbl">Reset</span></button>
+    <label class="speed" title="Simulation speed">
+      <select id="speed">
+        <option value="1" selected>Real time</option>
+        <option value="0.5">½ speed</option>
+        <option value="0.1">⅒ speed</option>
+        <option value="0.01">1/100 speed</option>
+        <option value="max">Max speed</option>
+      </select>
+    </label>
+  </div>
+  <div class="statusbox">
+    <div id="status" class="status idle"><span class="dot"></span><span id="statusText">Ready</span></div>
+    <div class="clock"><span id="simTime">0.000 000 s</span><span id="simRate" class="muted"></span></div>
+  </div>
+  <div class="toolbar right">
+    <button id="btnSettings" class="btn icon" title="Settings">⚙</button>
+    <button id="btnHelp" class="btn icon" title="Help &amp; board reference">?</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="pane editor-pane">
+    <div class="tabs" id="fileTabs" role="tablist"></div>
+    <div class="file-actions">
+      <button id="btnOpen" class="btn small" title="Open .S / .h files (or drop them anywhere)">Open…</button>
+      <button id="btnNew" class="btn small" title="New file">New</button>
+      <button id="btnDownload" class="btn small" title="Download the current file">Download</button>
+      <button id="btnExamples" class="btn small" title="Load an example program">Examples ▾</button>
+      <span class="spacer"></span>
+      <span id="buildInfo" class="muted small"></span>
+      <input type="file" id="fileInput" multiple accept=".S,.s,.asm,.h,.inc,.txt" hidden>
+    </div>
+    <div id="editorWrap" class="editor-wrap"></div>
+    <div id="changedBanner" class="banner" hidden>Code changed since the board was loaded. <button id="btnReload" class="btn small primary">⟲ Reset to load it</button></div>
+    <div id="problems" class="problems" hidden></div>
+  </section>
+
+  <section class="pane side-pane">
+    <div class="board-card">
+      <svg id="board" viewBox="0 0 640 300" role="img" aria-label="Lab board"></svg>
+      <div class="board-hint muted small">Hold <kbd>1</kbd> / <kbd>2</kbd> (or click and hold) to press S1 / S2.</div>
+    </div>
+    <div class="inspector">
+      <div class="tabs small-tabs" id="inspTabs" role="tablist">
+        <button data-tab="regs" class="tab active">Registers</button>
+        <button data-tab="irq" class="tab">Interrupts</button>
+        <button data-tab="gpio" class="tab">GPIO</button>
+        <button data-tab="mem" class="tab">Memory</button>
+        <button data-tab="listing" class="tab">Listing</button>
+        <button data-tab="console" class="tab">Console <span id="consoleBadge" class="badge" hidden></span></button>
+        <button data-tab="timeline" class="tab">Timeline</button>
+      </div>
+      <div class="insp-body">
+        <div data-panel="regs" class="panel active"><div id="regsView"></div></div>
+        <div data-panel="irq" class="panel"><div id="irqView"></div></div>
+        <div data-panel="gpio" class="panel"><div id="gpioView"></div></div>
+        <div data-panel="mem" class="panel">
+          <div class="mem-bar">
+            <input id="memAddr" class="mono" value="sp" spellcheck="false" title="Address, register name, or label">
+            <button class="btn small" data-mem="sp">sp</button>
+            <button class="btn small" data-mem=".data">.data</button>
+            <button class="btn small" data-mem=".rodata">.rodata</button>
+            <button class="btn small" data-mem=".text">.text</button>
+          </div>
+          <div id="memView" class="mono"></div>
+        </div>
+        <div data-panel="listing" class="panel"><div id="listingView" class="mono"></div></div>
+        <div data-panel="console" class="panel">
+          <div id="consoleView"></div>
+          <div class="console-input"><input id="uartIn" class="mono" placeholder="Type here to send to UART0 (Enter)…" spellcheck="false"><button id="btnClearConsole" class="btn small">Clear</button></div>
+        </div>
+        <div data-panel="timeline" class="panel"><div id="timelineView"></div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="examplesMenu" class="menu" hidden></div>
+
+<dialog id="settingsDlg" class="dlg">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <label class="row"><span>CPU clock</span><select id="setHz"><option value="16000000">16 MHz (lab board)</option><option value="13800000">13.8 MHz (HFROSC default)</option><option value="32000000">32 MHz</option><option value="320000000">320 MHz (PLL max)</option></select></label>
+    <label class="row"><span>Timing model</span><select id="setTiming"><option value="e31">E31 pipeline (FE310 manual §3)</option><option value="simple">1 cycle per instruction (lab manual)</option></select></label>
+    <label class="row check"><input type="checkbox" id="setRandom"><span>Uninitialized registers and RAM hold random values, like a real board</span></label>
+    <label class="row check"><input type="checkbox" id="setBounce"><span>S2 contact bounce (S2 isn't debounced on the real board; S1 is)</span></label>
+    <label class="row check"><input type="checkbox" id="setBreakExc"><span>Pause when an exception happens (bad address, illegal instruction…)</span></label>
+    <label class="row"><span>iof_en at reset</span><input id="setIof" class="mono" spellcheck="false"></label>
+    <p class="muted small">iof_en: GPIO pins the bootloader leaves on hardware I/O functions. Default 0x0003023C (SPI1 on GPIO 2–5 and 9, UART0 on 16–17), so the seven-segment needs iof_en cleared, as the Lab 4 manual says. This value is an assumption, not measured on a board.</p>
+    <div class="dlg-actions"><button class="btn" value="cancel">Cancel</button><button class="btn primary" id="settingsSave" value="ok">Save &amp; reset</button></div>
+  </form>
+</dialog>
+
+<dialog id="helpDlg" class="dlg wide">
+  <form method="dialog">
+    <div class="help" id="helpBody"></div>
+    <div class="dlg-actions"><button class="btn primary" value="ok">Close</button></div>
+  </form>
+</dialog>
+
+<div id="dropOverlay" class="drop-overlay" hidden><div>Drop .S / .h files to open them</div></div>
+
+<script src="vendor/codemirror.min.js"></script>
+<script src="vendor/addon/mode/simple.min.js"></script>
+<script src="vendor/addon/selection/active-line.min.js"></script>
+<script src="vendor/addon/dialog/dialog.min.js"></script>
+<script src="vendor/addon/search/searchcursor.min.js"></script>
+<script src="vendor/addon/search/search.min.js"></script>
+<script src="vendor/addon/search/jump-to-line.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
