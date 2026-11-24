@@ -228,6 +228,7 @@ export class Board {
   schedule(cycle, fn) {
     this.events.push({ cycle, fn });
     this.events.sort((a, b) => a.cycle - b.cycle);
+    this.replan = true;
   }
   locOf(pc) { return this.program?.addrToLoc.get(pc >>> 0); }
   srcOf(pc) {
@@ -526,6 +527,7 @@ export class Board {
       else if (o === 0xbff8) c.mtimeOff += (v >>> 0) - (this.mtime() % 2 ** 32);
       else if (o === 0xbffc) c.mtimeOff += ((v >>> 0) - Math.floor(this.mtime() / 2 ** 32)) * 2 ** 32;
       this.irqDirty = true;
+      this.replan = true;   // the timer deadline moved: run() must recompute where to stop
       return true;
     }
     if (a >= UART0_BASE && a < UART0_BASE + 0x1000) {
@@ -884,6 +886,7 @@ export class Board {
         if (this.ebreakHit !== undefined) { this.lastEbreak = this.ebreakHit; this.ebreakHit = undefined; return 'ebreak'; }
         if (this.stopRequest) { const r = this.stopRequest; this.stopRequest = null; return r; }
         if (this.waiting) break;
+        if (this.replan) { this.replan = false; break; }
       }
     }
     return 'limit';

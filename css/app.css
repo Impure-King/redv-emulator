@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #0d1117; --pane: #151b23; --pane2: #1b222c; --line: #2a3340; --line2: #353f4d;
   --text: #d6dde6; --muted: #8b96a5; --accent: #4c8dff; --accent2: #2f6fe0;
   --ok: #3fb950; --warn: #d29922; --err: #f85149; --info: #58a6ff;
@@ -181,7 +182,7 @@ table.t td { padding: 3px 6px; border-bottom: 1px solid #1d242e; font-family: va
 .tl .ledrow i { width: 9px; height: 12px; border-radius: 2px; background: #2a1a1a; display: inline-block; }
 .tl .ledrow i.on { background: #ff4b3a; box-shadow: 0 0 4px #ff4b3a; }
 .tl .dig { color: #ff9a3c; font-weight: 700; }
-.stats { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12.5px; }
+.stats { display: flex; gap: 4px 18px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12.5px; }
 .stats b { font-family: var(--mono); color: var(--text); font-weight: 600; }
 
 /* menus & dialogs */

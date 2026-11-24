@@ -107,6 +107,7 @@ async function initFiles() {
   for (const n of S.order) makeDoc(n);
   if (!S.active || !(S.active in S.files)) S.active = S.order[0];
   switchFile(S.active);
+  saveFiles();
 }
 function makeDoc(name) {
   const d = CodeMirror.Doc(S.files[name] ?? '', 'rvasm');
@@ -412,8 +413,12 @@ function setStatus(kind, text) {
 }
 
 // ------------------------------------------------------------------ main loop
-function frame(now) {
-  requestAnimationFrame(frame);
+// rAF drives the loop; a timer keeps it going where rAF is throttled (hidden panes, some embedded browsers).
+let lastTick = 0;
+function rafLoop(now) { tick(performance.now()); requestAnimationFrame(rafLoop); void now; }
+setInterval(() => { if (performance.now() - lastTick > 120) tick(performance.now()); }, 40);
+function tick(now) {
+  lastTick = now;
   const dtReal = Math.min(0.1, Math.max(0, (now - (S.lastFrame ?? now)) / 1000));
   S.lastFrame = now;
   if (S.running) {
@@ -1003,5 +1008,5 @@ logMsg('info', S.firstVisit
   : 'Your files were restored from this browser. Press <b>Run</b> to start.');
 S.unseen = 0; updateBadge();
 renderPanels(true);
-requestAnimationFrame(frame);
+requestAnimationFrame(rafLoop);
 window.__board = board;

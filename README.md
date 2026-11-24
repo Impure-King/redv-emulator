@@ -50,7 +50,8 @@ Plain ES modules, no build step. Serve the folder with any static server, e.g. `
 
 Checks:
 ```
-node test/compare-gnu.mjs test/encodings.S    # needs riscv64-elf-binutils and clang
+node test/run-tests.mjs                       # assembler, CPU, timing, UART, timer interrupt, hints
+node test/compare-gnu.mjs test/encodings.S    # byte-for-byte vs GNU as (needs riscv64-elf-binutils and clang)
 ```
 
 The editor is [CodeMirror 5](https://codemirror.net/5/) (MIT), vendored in `vendor/`.
