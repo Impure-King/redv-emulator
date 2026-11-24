@@ -64,8 +64,14 @@
 
   <section class="pane side-pane">
     <div class="board-card">
-      <svg id="board" viewBox="0 0 640 300" role="img" aria-label="Lab board"></svg>
-      <div class="board-hint muted small">Hold <kbd>1</kbd> / <kbd>2</kbd> (or click and hold) to press S1 / S2.</div>
+      <svg id="board" viewBox="0 0 1100 672" role="img" aria-label="ECE 222 RISC-V Shield and SparkFun RED-V Thing Plus"></svg>
+      <div class="board-foot">
+        <span class="ind" id="indRun" style="--c:#3fb950"><i></i>RUN</span>
+        <span class="ind" id="indIsr" style="--c:#58a6ff"><i></i>IN ISR</span>
+        <span class="ind" id="indTrap" style="--c:#f85149"><i></i>TRAP</span>
+        <span id="ledValText" class="mono"></span>
+        <span class="board-hint muted small">Hold <kbd>1</kbd> / <kbd>2</kbd> (or click and hold) to press S1 / S2.</span>
+      </div>
     </div>
     <div class="inspector">
       <div class="tabs small-tabs" id="inspTabs" role="tablist">
@@ -111,6 +117,7 @@
     <label class="row"><span>Timing model</span><select id="setTiming"><option value="e31">E31 pipeline (FE310 manual §3)</option><option value="simple">1 cycle per instruction (lab manual)</option></select></label>
     <label class="row check"><input type="checkbox" id="setRandom"><span>Uninitialized registers and RAM hold random values, like a real board</span></label>
     <label class="row check"><input type="checkbox" id="setBounce"><span>S2 contact bounce (S2 isn't debounced on the real board; S1 is)</span></label>
+    <label class="row"><span>Lit LED colour</span><select id="setLedColor"><option value="red">Red</option><option value="green">Green</option><option value="yellow">Yellow</option><option value="orange">Orange</option><option value="blue">Blue</option></select></label>
     <label class="row check"><input type="checkbox" id="setBreakExc"><span>Pause when an exception happens (bad address, illegal instruction…)</span></label>
     <label class="row"><span>iof_en at reset</span><input id="setIof" class="mono" spellcheck="false"></label>
     <p class="muted small">iof_en: GPIO pins the bootloader leaves on hardware I/O functions. Default 0x0003023C (SPI1 on GPIO 2–5 and 9, UART0 on 16–17), so the seven-segment needs iof_en cleared, as the Lab 4 manual says. This value is an assumption, not measured on a board.</p>

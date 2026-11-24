@@ -104,10 +104,17 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line2); 
 /* board */
 .side-pane { background: var(--bg); }
 .board-card { flex: none; padding: 10px 12px 6px; border-bottom: 1px solid var(--line); background: radial-gradient(ellipse at top, #18212c, #0f141a 70%); }
-#board { width: 100%; max-height: 300px; display: block; user-select: none; -webkit-user-select: none; touch-action: none; }
-.board-hint { text-align: center; margin-top: 2px; }
+#board { width: 100%; max-height: 360px; display: block; user-select: none; -webkit-user-select: none; touch-action: none; }
+.board-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.board-foot .ind { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font: 11px var(--mono); }
+.board-foot .ind i { width: 8px; height: 8px; border-radius: 50%; background: #2a3038; }
+.board-foot .ind.on { color: var(--text); }
+.board-foot .ind.on i { background: var(--c); box-shadow: 0 0 6px var(--c); }
+#ledValText { font-size: 12px; white-space: pre; }
+.board-hint { margin-left: auto; }
 .btn-cap { cursor: pointer; }
-.btn-cap:hover .cap-top { filter: brightness(1.15); }
+.btn-cap:hover .cap-top { filter: brightness(1.3); }
+.tp-btn:active .cap-top { fill: #070708; }
 
 /* inspector */
 .inspector { flex: 1; min-height: 0; display: flex; flex-direction: column; }

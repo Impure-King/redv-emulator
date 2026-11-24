@@ -19,7 +19,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('redv.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('redv.' + k, JSON.stringify(v)); } catch { /* quota */ } },
 };
-const DEFAULT_SETTINGS = { hz: 16000000, timing: 'e31', randomizeRegs: true, s2Bounce: true, breakExc: true, iofResetMask: 0x0003023c };
+const DEFAULT_SETTINGS = { hz: 16000000, timing: 'e31', randomizeRegs: true, s2Bounce: true, breakExc: true, iofResetMask: 0x0003023c, ledColor: 'red' };
 const S = {
   files: store.get('files', null),
   order: store.get('order', null),
@@ -458,105 +458,257 @@ function fmtTime(t) {
 }
 
 // ------------------------------------------------------------------ board drawing
+// Traced from the lab manual's photos: Figure 0.2 (the ECE "RISC-V Shield" daughter board) and
+// Figure 0.1 (SparkFun RED-V Thing Plus). Shield coordinates are the photo's pixels (808 × 672,
+// about 273 per inch); the Thing Plus (2.3" × 0.9") is drawn at the same scale beside it.
 const SVGNS = 'http://www.w3.org/2000/svg';
 const boardEls = { leds: [], segs: {}, caps: {} };
+const LIT_COLORS = {
+  red: { core: '#ff2d14', hot: '#ffe1d4', glow: '#ff2a0e' },
+  green: { core: '#2ee36a', hot: '#e6ffee', glow: '#1eff62' },
+  yellow: { core: '#ffcf1f', hot: '#fff9de', glow: '#ffc400' },
+  orange: { core: '#ff7d1a', hot: '#ffeedc', glow: '#ff6a00' },
+  blue: { core: '#2f86ff', hot: '#e2eeff', glow: '#2b78ff' },
+};
+const SILK = '#ecebe6', FONT = 'Arial, Helvetica, sans-serif', HOLE = '#10161d';
 function svg(tag, attrs = {}, parent) {
   const e = document.createElementNS(SVGNS, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
   if (parent) parent.appendChild(e);
   return e;
 }
+function silk(parent, x, y, text, size, attrs = {}) {
+  const t = svg('text', { x, y, fill: SILK, 'font-size': size, 'font-family': FONT, 'font-weight': 700, ...attrs }, parent);
+  t.textContent = text;
+  return t;
+}
+function tip(el, text) { svg('title', {}, el).textContent = text; return el; }
+function holdButton(grp, name) {
+  const down = (e) => { e.preventDefault(); grp.setPointerCapture?.(e.pointerId); pressBtn(name, true); };
+  const up = () => pressBtn(name, false);
+  grp.addEventListener('pointerdown', down);
+  grp.addEventListener('pointerup', up);
+  grp.addEventListener('pointercancel', up);
+  grp.addEventListener('lostpointercapture', up);
+}
 function buildBoard() {
+  const lit = LIT_COLORS[S.settings.ledColor] ?? LIT_COLORS.red;
   const root = $('#board');
+  boardEls.leds = []; boardEls.segs = {}; boardEls.caps = {};
   root.innerHTML = `
   <defs>
-    <linearGradient id="pcb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f5a3c"/><stop offset="1" stop-color="#153f2a"/></linearGradient>
-    <radialGradient id="ledOn" cx="50%" cy="40%" r="70%"><stop offset="0" stop-color="#fff2e8"/><stop offset=".35" stop-color="#ff5b3d"/><stop offset="1" stop-color="#c3200f"/></radialGradient>
-    <linearGradient id="capG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3f46"/><stop offset="1" stop-color="#16181c"/></linearGradient>
-    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="5"/></filter>
-    <filter id="glowS" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
-  </defs>
-  <rect x="6" y="6" width="628" height="288" rx="16" fill="url(#pcb)" stroke="#0e2a1c" stroke-width="2"/>
-  <rect x="14" y="14" width="612" height="272" rx="11" fill="none" stroke="#e8f0e8" stroke-opacity=".18" stroke-dasharray="2 4"/>
-  ${[[24, 24], [616, 24], [24, 276], [616, 276]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="7" fill="#0b1f15" stroke="#c9a85a" stroke-width="2.5"/>`).join('')}
-  <text x="42" y="36" fill="#e9f2ea" fill-opacity=".75" font-size="11" font-family="system-ui" font-weight="700" letter-spacing="1.5">ECE 222 LAB BOARD</text>
-  <text x="42" y="49" fill="#e9f2ea" fill-opacity=".45" font-size="9" font-family="system-ui" letter-spacing=".8">RED-V THING PLUS · SiFive FE310-G002</text>`;
-  // LED bar housing
-  const g = svg('g', { transform: 'translate(40,66)' }, root);
-  svg('rect', { x: -10, y: -8, width: 352, height: 106, rx: 6, fill: '#111316', stroke: '#2a2d33' }, g);
-  for (let i = 0; i < 8; i++) {
-    const ledIdx = 7 - i;                 // LED7 on the left, LED0 on the right (as on the board)
-    const pin = PINS.leds[ledIdx];
-    const x = 6 + i * 41;
-    const grp = svg('g', {}, g);
-    svg('title', {}, grp).textContent = `LED${ledIdx} · GPIO ${pin} · bit mask 0x${(1 << pin >>> 0).toString(16).padStart(8, '0')}`;
-    svg('rect', { x, y: 6, width: 30, height: 64, rx: 3, fill: '#3a1410' }, grp);
-    const glow = svg('rect', { x: x - 4, y: 2, width: 38, height: 72, rx: 8, fill: '#ff3b1f', filter: 'url(#glow)', opacity: 0 }, grp);
-    const on = svg('rect', { x, y: 6, width: 30, height: 64, rx: 3, fill: 'url(#ledOn)', opacity: 0 }, grp);
-    svg('rect', { x: x + 3, y: 9, width: 8, height: 58, rx: 2, fill: '#fff', opacity: .07 }, grp);
-    const lbl = svg('text', { x: x + 15, y: 84, 'text-anchor': 'middle', fill: '#c9d1d9', 'font-size': 10, 'font-family': 'ui-monospace,monospace' }, grp);
-    lbl.textContent = `LED${ledIdx}`;
-    const pl = svg('text', { x: x + 15, y: 112, 'text-anchor': 'middle', fill: '#e9f2ea', 'fill-opacity': .5, 'font-size': 9, 'font-family': 'ui-monospace,monospace' }, g);
-    pl.textContent = `GPIO${pin}`;
-    boardEls.leds[ledIdx] = { on, glow };
-  }
-  const bv = svg('text', { x: 40 + 166, y: 196, 'text-anchor': 'middle', fill: '#e9f2ea', 'fill-opacity': .8, 'font-size': 12, 'font-family': 'ui-monospace,monospace', id: 'ledValText' }, root);
-  bv.textContent = '';
-  // seven-segment
-  const sg = svg('g', { transform: 'translate(448,40)' }, root);
-  svg('rect', { x: 0, y: 0, width: 150, height: 196, rx: 8, fill: '#111316', stroke: '#2a2d33' }, sg);
-  const segPaths = {
-    a: 'M44 22 L106 22 L114 30 L106 38 L44 38 L36 30 Z', g: 'M44 90 L106 90 L114 98 L106 106 L44 106 L36 98 Z',
-    d: 'M44 158 L106 158 L114 166 L106 174 L44 174 L36 166 Z',
-    f: 'M30 36 L38 44 L38 84 L30 92 L22 84 L22 44 Z', b: 'M120 36 L128 44 L128 84 L120 92 L112 84 L112 44 Z',
-    e: 'M30 104 L38 112 L38 152 L30 160 L22 152 L22 112 Z', c: 'M120 104 L128 112 L128 152 L120 160 L112 152 L112 112 Z',
+    <linearGradient id="pcbBlack" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1e20"/><stop offset="1" stop-color="#0f0f10"/></linearGradient>
+    <linearGradient id="pcbRed" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e4343b"/><stop offset="1" stop-color="#c21e25"/></linearGradient>
+    <radialGradient id="litBar" cx="50%" cy="50%" r="65%"><stop offset="0" stop-color="${lit.hot}"/><stop offset=".45" stop-color="${lit.core}"/><stop offset="1" stop-color="${lit.core}"/></radialGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f4f4"/><stop offset=".55" stop-color="#c6c6c6"/><stop offset="1" stop-color="#8f8f8f"/></linearGradient>
+    <radialGradient id="capTop" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#4c4c4f"/><stop offset="1" stop-color="#111113"/></radialGradient>
+    <radialGradient id="padG" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#f6f6f6"/><stop offset="1" stop-color="#a6a6a6"/></radialGradient>
+    <filter id="glowL" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="glowS" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity=".55"/></filter>
+  </defs>`;
+  buildShield(root, lit);
+  buildThingPlus(root);
+}
+function buildShield(root, lit) {
+  const g = svg('g', {}, root);
+  svg('rect', { x: 0, y: 0, width: 808, height: 672, rx: 10, fill: 'url(#pcbBlack)', stroke: '#2c2c2f', 'stroke-width': 2, filter: 'url(#shadow)' }, g);
+  for (const [cx, cy] of [[40, 160], [42, 513], [770, 166], [775, 512]]) svg('circle', { cx, cy, r: 15, fill: HOLE, stroke: '#2a2a2c', 'stroke-width': 2 }, g);
+  silk(g, 538, 50, 'ELECTRICAL &', 25, { 'font-weight': 400, 'letter-spacing': 1 });
+  silk(g, 538, 87, 'COMPUTER', 25, { 'font-weight': 400, 'letter-spacing': 1 });
+  silk(g, 538, 125, 'ENGINEERING', 25, { 'font-weight': 400, 'letter-spacing': 1 });
+  silk(g, 538, 168, 'RISC-V SHIELD', 22, { 'font-weight': 400, 'letter-spacing': .5 });
+  silk(g, 418, 650, 'UNIVERSITY OF WATERLOO', 27, { 'font-weight': 400, 'text-anchor': 'middle', 'letter-spacing': 1.5 });
+  silk(g, 62, 233, 'PBSW:', 14, { 'text-anchor': 'middle' });
+  silk(g, 19, 253, 'S1_GPIO_12', 14);
+  silk(g, 19, 271, 'S2_GPIO_13', 14);
+  silk(g, 64, 311, 'DIGIT1:', 14, { 'text-anchor': 'middle' });
+  ['SEGA-GPIO_0', 'SEGB-GPIO_1', 'SEGC-GPIO_2', 'SEGD-GPIO_3', 'SEGE-GPIO_4', 'SEGF-GPIO_5', 'SEGG-GPIO_9']
+    .forEach((t, i) => silk(g, 17, 331 + i * 18.3, t, 14));
+
+  // through-hole pads: the two resistor networks (RP8_1, RP8_2) and the J7/J6 headers
+  const pad = (cx, cy, square) => {
+    if (square) svg('rect', { x: cx - 8.5, y: cy - 8.5, width: 17, height: 17, rx: 1.5, fill: 'url(#padG)' }, g);
+    else svg('circle', { cx, cy, r: 8.5, fill: 'url(#padG)' }, g);
   };
+  for (const y0 of [132, 398]) for (let k = 0; k < 8; k++) for (const x of [322, 405]) {
+    const cy = y0 + k * 27.3;
+    pad(x, cy, x === 405 && k === 0);
+    svg('circle', { cx: x, cy, r: 3, fill: '#8a8a8a' }, g);
+  }
+  const header = (x, y0, n, label, lx, ly) => {
+    const hg = tip(svg('g', {}, g), `${label}: ${n}-pin header. J7 and J6 match the 16- and 12-pin rows of the RED-V Thing Plus.`);
+    svg('rect', { x: x - 14, y: y0 - 14, width: 28, height: (n - 1) * 27.3 + 28, fill: 'none', stroke: SILK, 'stroke-width': 2.5 }, hg);
+    for (let k = 0; k < n; k++) {
+      const cy = y0 + k * 27.3;
+      if (k === 0) svg('rect', { x: x - 8.5, y: cy - 8.5, width: 17, height: 17, rx: 1.5, fill: 'url(#padG)' }, hg);
+      else svg('circle', { cx: x, cy, r: 8.5, fill: 'url(#padG)' }, hg);
+      svg('rect', { x: x - 3.5, y: cy - 3.5, width: 7, height: 7, fill: '#e4e4e4', stroke: '#777', 'stroke-width': 1 }, hg);
+    }
+    silk(g, lx, ly, label, 18, { 'font-weight': 400, 'text-anchor': 'middle', transform: `rotate(90 ${lx} ${ly})` });
+  };
+  header(488, 90, 16, 'J7', 528, 300);
+  header(713, 199, 12, 'J6', 755, 350);
+
+  // LED bar: two 4-segment bar graphs, GPIO 23 … 20 and 19, 18, 11, 10 (LED7 on the left, LED0 on the right)
+  const bars = [{ x: 12, pins: [23, 22, 21, 20] }, { x: 248, pins: [19, 18, 11, 10] }];
+  for (const bar of bars) {
+    svg('rect', { x: bar.x, y: 22, width: 222, height: 68, rx: 2, fill: '#cbc9c2' }, g);
+    svg('rect', { x: bar.x, y: 22, width: 222, height: 58, rx: 2, fill: '#f1f0eb' }, g);
+    for (let k = 1; k < 4; k++) svg('line', { x1: bar.x + k * 55.5, y1: 25, x2: bar.x + k * 55.5, y2: 77, stroke: '#e0ded7', 'stroke-width': 1.5 }, g);
+    bar.pins.forEach((pin, k) => silk(g, bar.x + k * 55.5 + 27.75, 102, String(pin), 15, { 'font-weight': 400, 'text-anchor': 'middle' }));
+  }
+  silk(g, 242, 119, 'GPIO', 15, { 'font-weight': 400, 'text-anchor': 'middle' });
+  for (const bar of bars) bar.pins.forEach((pin, k) => {
+    const ledIdx = PINS.leds.indexOf(pin), sx = bar.x + k * 55.5;
+    const grp = tip(svg('g', {}, g), `LED${ledIdx} · GPIO ${pin} · bit mask 0x${(1 << pin >>> 0).toString(16).padStart(8, '0')}`);
+    const glow = svg('rect', { x: sx + 2, y: 24, width: 51.5, height: 54, rx: 6, fill: lit.glow, filter: 'url(#glowL)', opacity: 0 }, grp);
+    const on = svg('rect', { x: sx + 5, y: 27, width: 45.5, height: 48, rx: 3, fill: 'url(#litBar)', opacity: 0 }, grp);
+    svg('rect', { x: sx, y: 22, width: 55.5, height: 68, fill: 'transparent' }, grp);
+    boardEls.leds[ledIdx] = { on, glow };
+  });
+
+  // push buttons: S2 above S1, as on the board
+  for (const [name, cy, lx] of [['S2', 168, 127], ['S1', 283, 123]]) {
+    const pin = PINS[name];
+    silk(g, lx, cy + 7, name, 20, { 'font-weight': 400 });
+    const grp = svg('g', { class: 'btn-cap', 'data-btn': name, transform: `translate(183,${cy})` }, g);
+    tip(grp, `${name} · GPIO ${pin} · active low · ${name === 'S2' ? 'not debounced' : 'debounced'} · hold key ${name[1]} or click and hold`);
+    for (const [dx, dy] of [[-24, -37], [24, -37], [-24, 37], [24, 37]]) svg('rect', { x: dx - 6, y: dy - 5, width: 12, height: 10, rx: 1.5, fill: 'url(#metal)' }, grp);
+    svg('rect', { x: -29, y: -30, width: 58, height: 60, rx: 3, fill: '#6c382e', stroke: '#45221c', 'stroke-width': 1.5 }, grp);
+    svg('rect', { x: -24, y: -24, width: 48, height: 48, rx: 4, fill: '#86493c' }, grp);
+    for (const [dx, dy] of [[-18, -18], [18, -18], [-18, 18], [18, 18]]) svg('circle', { cx: dx, cy: dy, r: 2.6, fill: '#4a271f' }, grp);
+    boardEls.caps[name] = svg('circle', { cx: 0, cy: 0, r: 17, fill: 'url(#capTop)', stroke: '#050505', 'stroke-width': 2, class: 'cap-top' }, grp);
+    holdButton(grp, name);
+  }
+
+  // R1, C1 and U1 (small surface-mount parts between the buttons and the pads)
+  svg('rect', { x: 262, y: 152, width: 12, height: 30, rx: 1.5, fill: '#1c1c1c' }, g);
+  for (const y of [152, 172]) svg('rect', { x: 262, y, width: 12, height: 10, rx: 1, fill: 'url(#metal)' }, g);
+  silk(g, 281, 173, 'R1', 17, { 'font-weight': 400 });
+  silk(g, 236, 226, 'C1', 17, { 'font-weight': 400 });
+  svg('rect', { x: 241, y: 232, width: 28, height: 11, rx: 1.5, fill: '#8a6c4c' }, g);
+  for (const x of [241, 260]) svg('rect', { x, y: 232, width: 9, height: 11, rx: 1, fill: 'url(#metal)' }, g);
+  svg('rect', { x: 245, y: 265, width: 24, height: 38, fill: 'none', stroke: SILK, 'stroke-width': 2 }, g);
+  svg('rect', { x: 251, y: 271, width: 12, height: 26, rx: 1, fill: '#1e1e1e' }, g);
+  for (const [x, y] of [[247, 276], [247, 288], [263, 276], [263, 288]]) svg('rect', { x, y, width: 5, height: 5, fill: 'url(#metal)' }, g);
+  silk(g, 291, 284, 'U1', 17, { 'font-weight': 400, 'text-anchor': 'middle', transform: 'rotate(90 291 284)' });
+
+  // DIGIT1: one common-cathode seven-segment digit; the decimal point isn't wired to a GPIO
+  const dg = svg('g', { transform: 'translate(143,428)' }, g);
+  svg('rect', { x: 0, y: 0, width: 90, height: 150, rx: 2, fill: '#29292b', stroke: '#3a3a3d', 'stroke-width': 2 }, dg);
+  svg('rect', { x: 5, y: 5, width: 80, height: 140, rx: 1, fill: '#313134' }, dg);
+  const H = (y) => `M27 ${y} L32 ${y - 5} L60 ${y - 5} L65 ${y} L60 ${y + 5} L32 ${y + 5} Z`;
+  const V = (x, y1, y2) => `M${x} ${y1} L${x + 5} ${y1 + 5} L${x + 5} ${y2 - 5} L${x} ${y2} L${x - 5} ${y2 - 5} L${x - 5} ${y1 + 5} Z`;
+  const segPaths = { a: H(22), b: V(67, 24, 73), c: V(67, 77, 126), d: H(128), e: V(25, 77, 126), f: V(25, 24, 73), g: H(75) };
+  const sk = svg('g', { transform: 'translate(14 0) skewX(-8)' }, dg);
   for (const [s, d] of Object.entries(segPaths)) {
-    const grp = svg('g', { transform: 'skewX(-6) translate(14,0)' }, sg);
-    svg('title', {}, grp).textContent = `segment ${s} · GPIO ${PINS.seg[s]}`;
-    svg('path', { d, fill: '#2b1208' }, grp);
-    const glow = svg('path', { d, fill: '#ff6a1a', filter: 'url(#glowS)', opacity: 0 }, grp);
-    const on = svg('path', { d, fill: '#ff7a2e', opacity: 0 }, grp);
+    const grp = tip(svg('g', {}, sk), `segment ${s} · GPIO ${PINS.seg[s]}`);
+    svg('path', { d, fill: '#cfcfca' }, grp);
+    const glow = svg('path', { d, fill: lit.glow, filter: 'url(#glowS)', opacity: 0 }, grp);
+    const on = svg('path', { d, fill: lit.core, opacity: 0 }, grp);
     boardEls.segs[s] = { on, glow };
   }
-  svg('text', { x: 75, y: 214, 'text-anchor': 'middle', fill: '#e9f2ea', 'fill-opacity': .5, 'font-size': 9, 'font-family': 'ui-monospace,monospace' }, sg).textContent = 'GPIO 0–5, 9 (a–f, g)';
-  // buttons
-  for (const [name, cx] of [['S1', 120], ['S2', 258]]) {
-    const pin = PINS[name];
-    const grp = svg('g', { class: 'btn-cap', 'data-btn': name, transform: `translate(${cx},246)` }, root);
-    svg('title', {}, grp).textContent = `${name} · GPIO ${pin} · active low${name === 'S2' ? ' · not debounced' : ' · debounced'} · key ${name[1]}`;
-    svg('rect', { x: -26, y: -26, width: 52, height: 52, rx: 5, fill: '#b9bec6', stroke: '#7d838c' }, grp);
-    for (const [dx, dy] of [[-19, -19], [19, -19], [-19, 19], [19, 19]]) svg('circle', { cx: dx, cy: dy, r: 3, fill: '#8b9098' }, grp);
-    const cap = svg('circle', { cx: 0, cy: 0, r: 16, fill: 'url(#capG)', stroke: '#000', 'stroke-width': 1.5, class: 'cap-top' }, grp);
-    svg('text', { x: 40, y: -4, fill: '#e9f2ea', 'font-size': 13, 'font-weight': 700, 'font-family': 'system-ui' }, grp).textContent = name;
-    svg('text', { x: 40, y: 11, fill: '#e9f2ea', 'fill-opacity': .55, 'font-size': 9.5, 'font-family': 'ui-monospace,monospace' }, grp).textContent = `GPIO${pin}`;
-    const key = svg('g', { transform: 'translate(40,17)' }, grp);
-    svg('rect', { x: 0, y: 0, width: 16, height: 14, rx: 3, fill: '#0d1117', 'fill-opacity': .5, stroke: '#e9f2ea', 'stroke-opacity': .35 }, key);
-    svg('text', { x: 8, y: 10.5, 'text-anchor': 'middle', fill: '#e9f2ea', 'fill-opacity': .7, 'font-size': 9.5, 'font-family': 'ui-monospace,monospace' }, key).textContent = name[1];
-    boardEls.caps[name] = cap;
-    const down = (e) => { e.preventDefault(); grp.setPointerCapture?.(e.pointerId); pressBtn(name, true); };
-    const up = () => pressBtn(name, false);
-    grp.addEventListener('pointerdown', down);
-    grp.addEventListener('pointerup', up);
-    grp.addEventListener('pointercancel', up);
-    grp.addEventListener('lostpointercapture', up);
-  }
-  // status LEDs
-  const st = svg('g', { transform: 'translate(392,236)' }, root);
-  const mk = (y, label, color) => {
-    svg('circle', { cx: 0, cy: y, r: 5, fill: '#222' }, st);
-    const l = svg('circle', { cx: 0, cy: y, r: 5, fill: color, opacity: 0 }, st);
-    svg('text', { x: 10, y: y + 3.5, fill: '#e9f2ea', 'fill-opacity': .6, 'font-size': 9, 'font-family': 'ui-monospace,monospace' }, st).textContent = label;
-    return l;
+  svg('circle', { cx: 77, cy: 128, r: 5, fill: '#cfcfca' }, dg);
+  silk(g, 146, 597, 'DIGIT1', 16, { 'font-weight': 400 });
+}
+function buildThingPlus(root) {
+  // Drawn as in the photo (628 × 246, USB-C on the left), then turned so USB-C points up and the
+  // 12-pin row is on the right, matching J7 (16 pins) on the left and J6 (12 pins) on the right.
+  svg('rect', { x: 840, y: 22, width: 246, height: 628, rx: 8, fill: '#000', filter: 'url(#shadow)' }, root);
+  const g = svg('g', { transform: 'translate(1086 22) rotate(90)' }, root);
+  tip(g, 'SparkFun RED-V Thing Plus: the SiFive FE310-G002 runs your program; the NXP MK22FN128 handles USB and debugging.');
+  svg('rect', { x: 0, y: 0, width: 628, height: 246, rx: 8, fill: 'url(#pcbRed)', stroke: '#9c151b', 'stroke-width': 2 }, g);
+  const white = (x, y, text, size, attrs = {}) => {
+    const t = svg('text', { x, y, fill: '#fff', 'font-size': size, 'font-family': FONT, 'font-weight': 700, ...attrs }, g);
+    t.textContent = text;
+    return t;
   };
-  boardEls.run = mk(0, 'RUN', '#3fb950');
-  boardEls.isr = mk(16, 'IN ISR', '#58a6ff');
-  boardEls.trap = mk(32, 'TRAP', '#f85149');
+  const tpad = (x, y) => {
+    svg('rect', { x: x - 10, y: y - 10, width: 20, height: 20, rx: 2, fill: '#e5e5e1' }, g);
+    svg('circle', { cx: x, cy: y, r: 5.5, fill: HOLE }, g);
+  };
+  ['VBAT', 'EN', 'VUSB', 'NC', '11', '10', '9', '2', '1', '0', 'SCL', 'SDA'].forEach((t, k) => {
+    const x = 281 + k * 27.3;
+    tpad(x, 16);
+    white(x, 42, t, 9.5, { 'text-anchor': 'middle' });
+  });
+  for (let k = 0; k < 16; k++) tpad(581.3 - (15 - k) * 27.3, 230);
+  for (const [cx, cy, r] of [[604, 18, 6], [74, 186, 4]]) svg('circle', { cx, cy, r, fill: HOLE }, g);
+
+  // USB-C receptacle (overhangs the edge), Qwiic and battery connectors
+  svg('rect', { x: -14, y: 84, width: 86, height: 78, rx: 10, fill: 'url(#metal)', stroke: '#7c7c7c', 'stroke-width': 1.5 }, g);
+  svg('rect', { x: -14, y: 94, width: 16, height: 58, rx: 7, fill: '#5a5a5a' }, g);
+  for (const y of [100, 146]) svg('line', { x1: 8, y1: y, x2: 66, y2: y, stroke: '#9d9d9d', 'stroke-width': 1.5 }, g);
+  svg('rect', { x: 88, y: 6, width: 70, height: 52, rx: 3, fill: '#29292b' }, g);
+  svg('rect', { x: 95, y: 12, width: 56, height: 26, rx: 2, fill: '#3b3b3e' }, g);
+  for (let k = 0; k < 4; k++) svg('rect', { x: 103 + k * 12, y: 44, width: 5, height: 14, fill: '#cfcfcf' }, g);
+  svg('rect', { x: 94, y: 68, width: 54, height: 17, rx: 8.5, fill: '#f6f6f6' }, g);
+  svg('text', { x: 121, y: 81, 'text-anchor': 'middle', fill: '#d4232a', 'font-size': 12, 'font-family': FONT, 'font-weight': 700 }, g).textContent = 'Qwiic';
+  svg('rect', { x: 168, y: 4, width: 82, height: 104, rx: 3, fill: '#38383b' }, g);
+  svg('rect', { x: 176, y: 12, width: 66, height: 62, rx: 2, fill: '#4b4b4f' }, g);
+  for (const x of [188, 216]) svg('rect', { x, y: 22, width: 14, height: 46, fill: '#2b2b2e' }, g);
+  for (const x of [192, 220]) svg('rect', { x, y: 84, width: 6, height: 26, fill: '#d0d0d0' }, g);
+
+  // SparkFun flame, tantalum capacitor, CHG LED and small parts
+  svg('path', { d: 'M150 126 C133 122 129 105 139 96 C140 104 146 107 150 103 C146 92 154 86 163 84 C158 93 166 97 171 105 C177 116 167 128 150 126 Z', fill: '#fff', opacity: .92 }, g);
+  svg('rect', { x: 88, y: 156, width: 40, height: 18, rx: 2, fill: '#dba445' }, g);
+  svg('rect', { x: 88, y: 156, width: 9, height: 18, rx: 1.5, fill: '#9c6a20' }, g);
+  svg('rect', { x: 190, y: 181, width: 12, height: 7, rx: 1, fill: '#f2f1ea' }, g);
+  white(196, 204, 'CHG', 11, { 'text-anchor': 'middle' });
+  const smd = (x, y, w, h, body = '#262626') => {
+    svg('rect', { x, y, width: w, height: h, rx: 1, fill: body }, g);
+    if (w >= h) for (const ex of [x, x + w - 4]) svg('rect', { x: ex, y, width: 4, height: h, fill: '#cfcfcf' }, g);
+    else for (const ey of [y, y + h - 4]) svg('rect', { x, y: ey, width: w, height: 4, fill: '#cfcfcf' }, g);
+  };
+  for (const [x, y, w, h, c] of [[92, 108, 16, 9], [92, 128, 16, 9], [96, 186, 16, 9, '#b89a6a'], [176, 128, 9, 16], [268, 48, 16, 9, '#b89a6a'],
+    [270, 186, 9, 16], [284, 62, 16, 9], [430, 52, 16, 9], [530, 58, 9, 16], [565, 58, 9, 16], [470, 160, 16, 9, '#b89a6a'],
+    [500, 176, 16, 9], [530, 186, 16, 9], [430, 200, 16, 9], [606, 120, 9, 16], [606, 150, 9, 16]]) smd(x, y, w, h, c);
+  for (const [x, y, w, h] of [[154, 140, 14, 20], [154, 176, 14, 20], [238, 134, 22, 30], [238, 172, 22, 30]]) {
+    svg('rect', { x, y, width: w, height: h, rx: 1, fill: '#1f1f21' }, g);
+    for (let k = 0; k < 3; k++) for (const ex of [x - 3, x + w]) svg('rect', { x: ex, y: y + 3 + k * (h - 8) / 2, width: 3, height: 3, fill: '#cfcfcf' }, g);
+  }
+
+  // MK22FN128 (QFP-64), FE310-G002 (QFN-48), the crystal and the QSPI flash
+  const chip = (cx, cy, size, pins, pinLen) => {
+    const h = size / 2;
+    for (let k = 0; k < pins; k++) {
+      const t = -h + 8 + k * (size - 16) / (pins - 1);
+      svg('rect', { x: cx + t - 1.2, y: cy - h - pinLen, width: 2.4, height: pinLen, fill: '#c9c9c9' }, g);
+      svg('rect', { x: cx + t - 1.2, y: cy + h, width: 2.4, height: pinLen, fill: '#c9c9c9' }, g);
+      svg('rect', { x: cx - h - pinLen, y: cy + t - 1.2, width: pinLen, height: 2.4, fill: '#c9c9c9' }, g);
+      svg('rect', { x: cx + h, y: cy + t - 1.2, width: pinLen, height: 2.4, fill: '#c9c9c9' }, g);
+    }
+    svg('rect', { x: cx - h, y: cy - h, width: size, height: size, rx: 2, fill: '#2a2a2c' }, g);
+  };
+  chip(362, 131, 104, 16, 8);
+  ['MK22FN128', 'VLH10', '0N74X', 'CTAK1921P'].forEach((t, i) => {
+    const x = 384 - i * 12, y = 96;
+    svg('text', { x, y, fill: '#8e8e8e', 'font-size': 9, 'font-family': FONT, transform: `rotate(90 ${x} ${y})` }, g).textContent = t;
+  });
+  chip(484, 112, 60, 12, 3);
+  svg('polygon', { points: '484,98 497,107 492,122 476,122 471,107', fill: 'none', stroke: '#8a8a8a', 'stroke-width': 2 }, g);
+  svg('text', { x: 484, y: 92, 'text-anchor': 'middle', fill: '#8e8e8e', 'font-size': 7, 'font-family': FONT }, g).textContent = 'FE310-G002';
+  svg('rect', { x: 543, y: 70, width: 16, height: 44, rx: 3, fill: 'url(#metal)' }, g);
+  svg('rect', { x: 558, y: 128, width: 36, height: 46, rx: 1.5, fill: '#222224' }, g);
+  for (let k = 0; k < 4; k++) for (const ex of [553, 594]) svg('rect', { x: ex, y: 132 + k * 11, width: 5, height: 4, fill: '#cfcfcf' }, g);
+
+  // WAKE and RESET buttons (RESET resets the emulated board)
+  const tact = (cx, cy, label, title, onClick) => {
+    const b = tip(svg('g', { class: onClick ? 'btn-cap tp-btn' : '', transform: `translate(${cx} ${cy})` }, g), title);
+    svg('rect', { x: -20, y: -15, width: 40, height: 30, rx: 2, fill: 'url(#metal)' }, b);
+    svg('rect', { x: -12, y: -9, width: 24, height: 18, rx: 4, fill: '#262628', class: 'cap-top' }, b);
+    if (onClick) b.addEventListener('click', onClick);
+    const lx = 76, ly = cy;
+    white(lx, ly, label, 11, { 'text-anchor': 'middle', transform: `rotate(90 ${lx} ${ly})` });
+  };
+  tact(41, 31, 'WAKE', 'WAKE (always-on wake-up button): not modelled', null);
+  tact(41, 218, 'RESET', 'RESET: rebuild and reset the board (same as ⟲ Reset)', () => cmdReset());
 }
 function pressBtn(name, down) {
   board.setButton(name, down);
-  boardEls.caps[name].setAttribute('fill', down ? '#0b0c0e' : 'url(#capG)');
-  boardEls.caps[name].setAttribute('r', down ? 14.5 : 16);
+  boardEls.caps[name].setAttribute('fill', down ? '#070708' : 'url(#capTop)');
+  boardEls.caps[name].setAttribute('r', down ? 15.5 : 17);
   S.panelDirty = true;
   if (!S.running && S.prog && board.cycles > 0) renderPanels(true);
 }
@@ -585,11 +737,11 @@ function drawBoard() {
   }
   const lit = board.pinLevels & board.pinDriven;
   const lv = ledValue(lit), d = segDigit(lit);
-  $('#ledValText').textContent = S.prog ? `LED bar = 0x${lv.toString(16).padStart(2, '0').toUpperCase()}  (${lv.toString(2).padStart(8, '0')})${d ? `   7-seg: ${d}` : ''}` : '';
-  boardEls.run.setAttribute('opacity', S.running ? 1 : 0);
-  boardEls.isr.setAttribute('opacity', board.inIsrSince !== undefined ? 1 : 0);
+  $('#ledValText').textContent = S.prog ? `LED bar 0x${lv.toString(16).padStart(2, '0').toUpperCase()} (${lv.toString(2).padStart(8, '0')})${d ? `  ·  7-seg ${d}` : ''}` : '';
   const trapRecent = S.lastTrapCycle !== undefined && board.cycles - S.lastTrapCycle < board.opts.hz * 0.15;
-  boardEls.trap.setAttribute('opacity', trapRecent ? 1 : 0);
+  $('#indRun').classList.toggle('on', S.running);
+  $('#indIsr').classList.toggle('on', board.inIsrSince !== undefined);
+  $('#indTrap').classList.toggle('on', trapRecent);
 }
 
 // ------------------------------------------------------------------ inspector panels
@@ -948,14 +1100,16 @@ $('#btnSettings').onclick = () => {
   const s = S.settings;
   $('#setHz').value = String(s.hz); $('#setTiming').value = s.timing;
   $('#setRandom').checked = s.randomizeRegs; $('#setBounce').checked = s.s2Bounce; $('#setBreakExc').checked = s.breakExc;
+  $('#setLedColor').value = s.ledColor;
   $('#setIof').value = '0x' + (s.iofResetMask >>> 0).toString(16).toUpperCase().padStart(8, '0');
   $('#settingsDlg').showModal();
 };
 $('#settingsSave').onclick = () => {
   const iof = parseInt($('#setIof').value, 16);
-  S.settings = { hz: +$('#setHz').value, timing: $('#setTiming').value, randomizeRegs: $('#setRandom').checked, s2Bounce: $('#setBounce').checked, breakExc: $('#setBreakExc').checked, iofResetMask: Number.isNaN(iof) ? DEFAULT_SETTINGS.iofResetMask : iof >>> 0 };
+  S.settings = { hz: +$('#setHz').value, timing: $('#setTiming').value, randomizeRegs: $('#setRandom').checked, s2Bounce: $('#setBounce').checked, breakExc: $('#setBreakExc').checked, iofResetMask: Number.isNaN(iof) ? DEFAULT_SETTINGS.iofResetMask : iof >>> 0, ledColor: $('#setLedColor').value };
   store.set('settings', S.settings);
   board.opts = { ...board.opts, ...boardOpts() };
+  buildBoard(); drawBoard();
   $('.brand-sub').textContent = `SiFive FE310-G002 · RV32IMAC · ${(S.settings.hz / 1e6).toFixed(S.settings.hz % 1e6 ? 1 : 0)} MHz`;
   setTimeout(cmdReset, 0);
 };

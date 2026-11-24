@@ -20,6 +20,7 @@ A browser emulator for the SparkFun **RED-V Thing Plus** (SiFive **FE310-G002**,
   - Register, CSR, PLIC and GPIO bit views, a memory view and a listing with machine code.
   - A **timeline** of every LED and seven-segment change with timestamps.
   - A console that explains traps and common mistakes: output not enabled, IOF still on, an interrupt that never reaches the CPU, a missing PLIC complete, an interrupt storm, stack overflow.
+- **Looks like the real board:** the board view is traced from the lab manual's photos of the ECE "RISC-V Shield" (Figure 0.2) and the SparkFun RED-V Thing Plus (Figure 0.1), drawn to scale side by side. Click the Thing Plus's RESET button to reset. The photos show the board unlit, so the lit colour (red) is a guess: change it under Settings.
 - **Realism:**
   - LEDs show brightness from their duty cycle.
   - S2 bounces, because it isn't debounced on the real board.
